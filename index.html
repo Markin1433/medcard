@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#1f5f8b" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1b26" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Медкарта">
+<title>Медкарта</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="lock" class="lock" hidden></div>
+<div id="app" class="app" hidden>
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="top" id="top"></header>
+    <div class="view" id="view"></div>
+  </main>
+  <nav class="tabs" id="tabs"></nav>
+</div>
+<div id="sheet" class="sheet" hidden></div>
+<div id="toast" class="toast" hidden></div>
+<noscript>Для работы медкарты нужен JavaScript.</noscript>
+<script src="crypto.js"></script>
+<script src="search.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
