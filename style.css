@@ -210,3 +210,38 @@ body.doctor-mode .main { padding-bottom: 20px; }
   .card { border: 0; box-shadow: none; padding: 0; }
   body { font-size: 11pt; }
 }
+
+/* ---------- дневник прививок ---------- */
+.f-vacc { display: none; }
+.t-vacc .f-vacc { display: block; }
+.vinf { border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; margin: 10px 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 12px; }
+.vinf legend { padding: 0 6px; color: var(--muted); font-size: .9em; }
+.vinf .chk { margin: 6px 0; }
+.vtab { min-width: 0; width: 100%; }
+.vtab th { text-align: left; font-weight: 600; white-space: nowrap; padding-right: 12px; vertical-align: top; width: 1%; }
+.vtab td { line-height: 2.1; }
+.vd { display: inline-block; padding: 2px 9px; margin: 1px 2px; border-radius: 999px; font: inherit; font-size: .82em; line-height: 1.6; cursor: pointer; border: 1.5px solid transparent; }
+.vd.s-done { background: #dff3e4; color: #17643a; }
+.vd.s-indicated { background: var(--warn-bg); color: #8a5a00; border-color: var(--warn-line); }
+.vd.s-plan { background: var(--pri-soft); color: var(--pri); border-color: var(--pri); border-style: dashed; }
+.vd.s-exempt { background: #fde3e1; color: var(--danger); }
+.vd.approx { border-style: dashed; border-color: #5aa774; }
+.vd.mine { box-shadow: inset 0 0 0 2px var(--pri); }
+.vleg { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: .85em; color: var(--muted); }
+.vleg i.vd { width: 18px; height: 12px; padding: 0; margin-right: 5px; vertical-align: middle; cursor: default; background-color: var(--line); }
+.vleg i.vd.s-done { background: #dff3e4; } .vleg i.vd.s-indicated { background: var(--warn-bg); } .vleg i.vd.s-plan { background: var(--pri-soft); }
+.vlist .vrow { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; }
+.vlist .vrow .meta a { margin-right: 10px; }
+.vlist li.flash { background: var(--mark); transition: background .4s; border-radius: 8px; }
+@media (prefers-color-scheme: dark) {
+  .vd.s-done, .vleg i.vd.s-done { background: #173d27; color: #9fe0b5; }
+  .vd.s-indicated { color: #f3c477; }
+  .vd.s-exempt { background: #4a1d1a; }
+}
+.vd { white-space: nowrap; }
+@media (max-width: 640px) {
+  .vtab, .vtab tbody, .vtab tr { display: block; width: 100%; }
+  .vtab th, .vtab td { display: block; width: auto; white-space: normal; border: 0; }
+  .vtab th { padding: 10px 4px 0; background: none; }
+  .vtab td { padding: 2px 0 8px; border-bottom: 1px solid var(--line); line-height: 2; }
+}

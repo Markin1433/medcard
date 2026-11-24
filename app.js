@@ -15,7 +15,9 @@ const NOTE_TYPES = {
   plan: { name: 'Запланировано', icon: '📅' },
   question: { name: 'Вопрос врачу', icon: '❓' },
   symptom: { name: 'Симптом / самочувствие', icon: '🌡' },
+  vacc: { name: 'Прививка', icon: '💉' },
 };
+const V_STATUS = { done: '✔ сделана', indicated: '• показана', plan: '📅 запланирована', exempt: '⛔ медотвод' };
 
 /* ---------- даты ---------- */
 const MONTHS_G = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -111,10 +113,14 @@ function buildIndex() {
   MC.search.setDict(S.data.searchdict);
   const ix = new MC.search.Index();
   for (const d of S.data.docs) ix.add({ kind: 'doc', id: 'd' + d.n, n: d.n, title: d.title, text: d.body, extra: d.source + ' ' + d.sections.map(s => SEC(s).name).join(' '), date: d.date, sections: d.sections });
-  for (const n of liveNotes()) ix.add({ kind: 'note', id: 'n' + n.id, note: n.id, title: n.title || NOTE_TYPES[n.type]?.name, text: [n.text, n.height && `рост ${n.height} см`, n.weight && `вес ${n.weight} кг`, n.author].filter(Boolean).join('\n'), extra: (NOTE_TYPES[n.type]?.name || '') + ' ' + (SEC(n.section).name || ''), date: n.date, sections: n.section ? [n.section] : [] });
+  for (const n of liveNotes()) ix.add({ kind: 'note', id: 'n' + n.id, note: n.id, title: n.title || NOTE_TYPES[n.type]?.name, text: [n.text, n.height && `рост ${n.height} см`, n.weight && `вес ${n.weight} кг`, n.type === 'vacc' && vaccNoteText(n), n.author].filter(Boolean).join('\n'), extra: (NOTE_TYPES[n.type]?.name || '') + ' ' + (SEC(n.section).name || ''), date: n.date, sections: n.section ? [n.section] : [] });
   for (const [k, v] of Object.entries(S.data.summary)) ix.add({ kind: 'summary', id: 's' + k, key: k, title: 'Сводка: ' + v.title, text: v.md, date: S.data.built, sections: [] });
   for (const s of S.data.sections) ix.add({ kind: 'section', id: 'sec' + s.id, sec: s.id, title: 'Раздел: ' + s.name, text: S.data.keyfacts.sections[s.id] || '', date: S.data.built, sections: [s.id] });
   for (const il of S.data.illustrations) ix.add({ kind: 'ill', id: 'i' + il.id, ill: il.id, title: il.title, text: il.desc, date: '', sections: illSections(il) });
+  if (S.data.vacc) {
+    S.data.vacc.records.forEach((r, i) => ix.add({ kind: 'vacc', id: 'vr' + i, dateLabel: r.approx ? vShort(r) : '', title: 'Прививка: ' + vaccLabel(r), text: [r.dateText, r.dose, V_STATUS[r.status], r.src].filter(Boolean).join('\n'), extra: 'прививка вакцинация вакцина', date: r.date, sections: [] }));
+    S.data.vacc.history.forEach((h, i) => ix.add({ kind: 'vacc', id: 'vh' + i, dateLabel: h.dateText || '', title: 'Прививки: ' + ({ exempt: 'медотвод', allowed: 'разрешение', note: 'рекомендация' }[h.kind] || ''), text: h.text, extra: 'прививка вакцинация медотвод', date: h.date, sections: [] }));
+  }
   ix.finalize(); S.index = ix;
 }
 function illSections(il) {
@@ -243,9 +249,10 @@ const NAV = [
 ];
 function frame(title, opts = {}) {
   const { parts } = parseHash(); const cur = parts[0] || '';
-  $('#tabs').innerHTML = NAV.map(([h, ic, nm]) => `<a href="#/${h}" class="${cur === h || (h === 'more' && ['sum', 'doctor', 'i', 'set'].includes(cur)) || (h === '' && cur === 's') ? 'on' : ''}"><span>${ic}</span>${nm}</a>`).join('');
+  $('#tabs').innerHTML = NAV.map(([h, ic, nm]) => `<a href="#/${h}" class="${cur === h || (h === 'more' && ['sum', 'doctor', 'i', 'set', 'v'].includes(cur)) || (h === '' && cur === 's') ? 'on' : ''}"><span>${ic}</span>${nm}</a>`).join('');
   $('#side').innerHTML = `<div class="brand">✚ Медкарта</div>
     <nav>${NAV.map(([h, ic, nm]) => `<a href="#/${h}" class="${cur === h ? 'on' : ''}">${ic} ${nm}</a>`).join('')}
+    <a href="#/v" class="${cur === 'v' ? 'on' : ''}">💉 Прививки</a>
     <a href="#/doctor" class="${cur === 'doctor' ? 'on' : ''}">🩺 Для врача</a></nav>
     <div class="side-h">Разделы</div><nav>${S.data.sections.map(s => `<a href="#/s/${s.id}" class="${cur === 's' && parts[1] === s.id ? 'on' : ''}">${s.icon} ${esc(s.name)}</a>`).join('')}</nav>`;
   $('#top').innerHTML = `${opts.back !== false && cur ? '<button class="back" onclick="history.length>1?history.back():location.hash=\'#/\'" aria-label="Назад">‹</button>' : ''}
@@ -267,6 +274,7 @@ function render() {
     else if (r === 'n') viewNotes(v, q);
     else if (r === 'new' || r === 'edit') viewEdit(v, parts[1], q);
     else if (r === 'doctor') viewDoctor(v);
+    else if (r === 'v') viewVacc(v);
     else if (r === 'sum') viewSummary(v, parts[1]);
     else if (r === 'i') viewIll(v, parts[1]);
     else if (r === 'more') viewMore(v);
@@ -281,7 +289,7 @@ document.addEventListener('click', e => { const c = e.target.closest && e.target
 function viewHome(v) {
   frame('Медкарта', { back: false });
   const c = S.data.child, kf = S.data.keyfacts, td = today();
-  const plans = liveNotes().filter(n => n.type === 'plan' && !n.done && n.date >= addDays(td, -1)).sort((a, b) => a.date.localeCompare(b.date));
+  const plans = liveNotes().filter(n => ((n.type === 'plan' && !n.done) || (n.type === 'vacc' && n.vStatus === 'plan')) && n.date >= addDays(td, -1)).sort((a, b) => a.date.localeCompare(b.date));
   const recent = liveNotes().slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.updated - a.updated).slice(0, 5);
   const counts = {}; for (const d of S.data.docs) for (const s of d.sections) counts[s] = (counts[s] || 0) + 1;
   for (const n of liveNotes()) if (n.section) counts[n.section] = (counts[n.section] || 0) + 1;
@@ -290,10 +298,10 @@ function viewHome(v) {
     <div class="who"><div class="ava">${esc(c.short[0])}</div><div><h2>${esc(c.name)}</h2>
     <p>${fmtLong(c.birth)} · <b>${ageAt(td)}</b></p><p class="muted">Группа крови: ${esc(c.blood)}</p></div></div>
     <a class="searchbox" href="#/q">🔍 <span>Поиск по всем документам и записям…</span></a>
-    <div class="quick"><a class="btn primary" href="#/new?type=note">＋ Добавить запись</a><a class="btn" href="#/doctor">🩺 Показать врачу</a></div>
+    <div class="quick"><a class="btn primary" href="#/new?type=note">＋ Добавить запись</a><a class="btn" href="#/v">💉 Прививки</a><a class="btn" href="#/doctor">🩺 Показать врачу</a></div>
   </section>
   ${plans.length || kf.alerts.length ? `<section class="card"><h3>📌 Важно и предстоящее</h3><ul class="alerts">
-    ${plans.map(n => `<li class="plan"><a href="#/n/${n.id}"><b>${fmtDate(n.date)}${n.date === td ? ' · сегодня' : ''}</b> — ${esc(n.title)}</a></li>`).join('')}
+    ${plans.map(n => `<li class="plan"><a href="#/n/${n.id}"><b>${fmtDate(n.date)}${n.date === td ? ' · сегодня' : ''}</b> — ${n.type === 'vacc' ? '💉 Прививка: ' : ''}${esc(n.title)}</a></li>`).join('')}
     ${kf.alerts.map(a => `<li><a href="#/s/${a.section}"><b>${esc(a.title)}</b><span>${esc(a.text)}</span></a></li>`).join('')}
   </ul></section>` : ''}
   <section class="card"><h3>Главное о здоровье</h3><ul class="facts">${kf.headline.map(h => `<li><a href="#/s/${h.section}">${SEC(h.section).icon} ${esc(h.text)}</a></li>`).join('')}</ul>
@@ -337,7 +345,7 @@ function viewSection(v, id) {
   v.innerHTML = `
   <section class="card"><p class="lead">${esc(S.data.keyfacts.sections[id] || '')}</p>
     ${alerts.map(a => `<div class="alert"><b>${esc(a.title)}</b><br>${esc(a.text)}</div>`).join('')}
-    <div class="quick"><a class="btn primary" href="#/new?type=note&sec=${id}">＋ Запись в раздел</a><a class="btn" href="#/q?sec=${id}">🔍 Искать в разделе</a></div></section>
+    <div class="quick"><a class="btn primary" href="#/new?type=note&sec=${id}">＋ Запись в раздел</a>${id === 'peds' ? '<a class="btn" href="#/v">💉 Дневник прививок</a>' : ''}<a class="btn" href="#/q?sec=${id}">🔍 Искать в разделе</a></div></section>
   ${charts ? `<section class="card">${charts}</section>` : ''}
   ${(SEC_SUMMARY[id] || []).length ? `<section class="card collapsible"><details${id === 'cardio' ? ' open' : ''}><summary>Динамика по документам</summary>${SEC_SUMMARY[id].map(summaryPart).join('')}</details></section>` : ''}
   ${ills.length ? `<section class="card"><h3>Снимки и изображения</h3><div class="thumbs">${ills.map(i => `<a href="#/i/${i.id}"><img src="${i.img}" alt="" loading="lazy"><span>${esc(i.title)}</span></a>`).join('')}</div></section>` : ''}
@@ -399,7 +407,7 @@ function viewSearch(v, initial) {
   v.innerHTML = `<section class="card searchcard">
     <div class="sbox"><input id="sq" type="search" placeholder="Например: анализ крови, ЭКГ, прививки, июль 2024" value="${esc(initial)}" autocomplete="off" enterkeyhint="search"><button id="sclear" aria-label="Очистить">✕</button></div>
     <div class="filters">
-      <select id="fkind"><option value="">Всё</option><option value="doc">Документы</option><option value="note">Мои записи</option></select>
+      <select id="fkind"><option value="">Всё</option><option value="doc">Документы</option><option value="note">Мои записи</option><option value="vacc">Прививки</option></select>
       <select id="fsec"><option value="">Все разделы</option>${S.data.sections.map(s => `<option value="${s.id}"${p.get('sec') === s.id ? ' selected' : ''}>${s.icon} ${esc(s.name)}</option>`).join('')}</select>
       <select id="fyear"><option value="">Все годы</option>${years.map(y => `<option>${y}</option>`).join('')}</select>
       <select id="fsort"><option value="rel">По точности</option><option value="new">Сначала новые</option><option value="old">Сначала старые</option></select>
@@ -442,8 +450,9 @@ function resultCard(x, terms, phrases, q) {
   else if (it.kind === 'note') { href = `#/n/${it.note}`; kind = '✍️ Запись родителей'; }
   else if (it.kind === 'summary') { href = `#/sum/${it.key}`; kind = '📋 Сводка'; }
   else if (it.kind === 'section') { href = `#/s/${it.sec}`; kind = '📁 Раздел'; }
+  else if (it.kind === 'vacc') { href = '#/v'; kind = '💉 Прививки'; }
   else { href = `#/i/${it.ill}`; kind = '🖼 Изображение'; }
-  return `<a class="card result" href="${href}"><div class="rmeta"><span>${kind}</span>${it.date && it.kind !== 'summary' && it.kind !== 'section' ? `<span>${fmtDate(it.date)}</span>` : ''}${(it.sections || []).map(s => `<span>${SEC(s).icon}</span>`).join('')}</div>
+  return `<a class="card result" href="${href}"><div class="rmeta"><span>${kind}</span>${it.date && it.kind !== 'summary' && it.kind !== 'section' ? `<span>${esc(it.dateLabel || fmtDate(it.date))}</span>` : ''}${(it.sections || []).map(s => `<span>${SEC(s).icon}</span>`).join('')}</div>
     <h4>${hl(it.title || '')}</h4>${sn}</a>`;
 }
 
@@ -490,6 +499,7 @@ function viewNote(v, id) {
     <h2>${T.icon} ${esc(n.title || T.name)}</h2>
     <p class="muted">${fmtLong(n.date)}${n.endDate ? ' — ' + fmtLong(n.endDate) : ''} · возраст ${ageAt(n.date)}${n.author ? ' · записал(а): ' + esc(n.author) : ''}</p>
     ${n.height || n.weight ? `<p class="big">${n.height ? `Рост <b>${esc(n.height)}</b> см` : ''}${n.height && n.weight ? ' · ' : ''}${n.weight ? `Вес <b>${esc(n.weight)}</b> кг` : ''}</p>` : ''}
+    ${n.type === 'vacc' ? `<p class="big">${esc(V_STATUS[n.vStatus || 'done'])}${n.vDose ? ' · доза <b>' + esc(n.vDose) + '</b>' : ''}</p>${(n.vInf || []).length ? `<p>От: ${esc(n.vInf.map(infName).join(', '))}</p>` : ''}${n.vLot ? `<p class="muted">Серия: ${esc(n.vLot)}</p>` : ''}<p><a href="#/v">💉 Весь дневник прививок →</a></p>` : ''}
     ${n.text ? `<div class="mdbody">${md(n.text)}</div>` : ''}
     ${(n.photos || []).length ? `<div class="photos">${n.photos.map((p, i) => `<a href="#" data-i="${i}"><img src="${p}" alt=""></a>`).join('')}</div>` : ''}
     ${d ? `<p>Относится к документу: <a href="#/d/${d.n}">${fmtDate(d.date)} — ${esc(d.title)}</a></p>` : ''}
@@ -508,6 +518,12 @@ function viewEdit(v, id, q) {
       <label class="f-end">До (необязательно)<input type="date" name="endDate" value="${esc(n.endDate || '')}"></label></div>
     <label>Раздел<select name="section"><option value="">— без раздела —</option>${S.data.sections.map(s => `<option value="${s.id}"${n.section === s.id ? ' selected' : ''}>${s.icon} ${esc(s.name)}</option>`).join('')}</select></label>
     <label class="f-title">Заголовок<input name="title" value="${esc(n.title || '')}" placeholder="Например: Приём кардиолога в Финляндии"></label>
+    <div class="f-vacc">
+      <label>Статус<select name="vStatus">${Object.entries({ done: 'Сделана', plan: 'Запланирована', exempt: 'Медотвод' }).map(([k, t]) => `<option value="${k}"${(n.vStatus || 'done') === k ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+      <fieldset class="vinf"><legend>От каких инфекций</legend>${(S.data.vacc ? S.data.vacc.infections : []).map(i => `<label class="chk"><input type="checkbox" name="vInf" value="${i.id}"${(n.vInf || []).includes(i.id) ? ' checked' : ''}> ${esc(i.name)}</label>`).join('')}</fieldset>
+      <div class="row2"><label>Доза<input name="vDose" list="vdoses" value="${esc(n.vDose || '')}" placeholder="V1, V2, RV1…"></label><label>Серия вакцины<input name="vLot" value="${esc(n.vLot || '')}" placeholder="с упаковки / из справки"></label></div>
+      <datalist id="vdoses"><option>V1</option><option>V2</option><option>V3</option><option>V4</option><option>RV1</option><option>RV2</option><option>RV3</option></datalist>
+    </div>
     <div class="row2 f-measure"><label>Рост, см<input name="height" inputmode="decimal" value="${esc(n.height || '')}"></label><label>Вес, кг<input name="weight" inputmode="decimal" value="${esc(n.weight || '')}"></label></div>
     <label>Текст<textarea name="text" rows="8" placeholder="Что сказал врач, назначения, результаты, наблюдения…">${esc(n.text || '')}</textarea></label>
     <div class="photos edit" id="ph">${(n.photos || []).map((p, i) => `<span><img src="${p}"><button type="button" data-i="${i}">✕</button></span>`).join('')}</div>
@@ -518,9 +534,9 @@ function viewEdit(v, id, q) {
     ${n.doc ? `<p class="muted small">Привязано к документу от ${fmtDate(docByN(n.doc).date)}</p>` : ''}
     <div class="row"><button class="btn primary" type="submit">Сохранить</button><button class="btn" type="button" onclick="history.back()">Отмена</button></div></form>`;
   const f = $('#nf');
-  const sync = () => { const t = f.type.value; f.classList.toggle('t-measure', t === 'measure'); f.classList.toggle('t-end', t === 'med' || t === 'plan'); f.classList.toggle('t-done', ['med', 'plan', 'question'].includes(t));
+  const sync = () => { const t = f.type.value; f.classList.toggle('t-measure', t === 'measure'); f.classList.toggle('t-vacc', t === 'vacc'); f.classList.toggle('t-end', t === 'med' || t === 'plan'); f.classList.toggle('t-done', ['med', 'plan', 'question'].includes(t));
     const lbl = { med: 'Не принимает', plan: 'Выполнено', question: 'Есть ответ' }[t]; if (lbl) f.querySelector('.f-done span').textContent = lbl;
-    f.title.placeholder = { med: 'Название лекарства и дозировка', plan: 'Что запланировано (приём, анализ, операция)', question: 'Вопрос к врачу', measure: 'Например: измерили дома', visit: 'Например: приём кардиолога', result: 'Например: общий анализ крови' }[t] || 'Заголовок'; };
+    f.title.placeholder = { vacc: 'Название вакцины, например: Пентаксим', med: 'Название лекарства и дозировка', plan: 'Что запланировано (приём, анализ, операция)', question: 'Вопрос к врачу', measure: 'Например: измерили дома', visit: 'Например: приём кардиолога', result: 'Например: общий анализ крови' }[t] || 'Заголовок'; };
   f.type.onchange = sync; sync();
   const drawPh = () => { $('#ph').innerHTML = n.photos.map((p, i) => `<span><img src="${p}"><button type="button" data-i="${i}">✕</button></span>`).join(''); $('#ph').querySelectorAll('button').forEach(b => b.onclick = () => { n.photos.splice(+b.dataset.i, 1); drawPh(); }); };
   drawPh();
@@ -529,6 +545,8 @@ function viewEdit(v, id, q) {
     e.preventDefault(); const fd = new FormData(f);
     Object.assign(n, { type: fd.get('type'), date: fd.get('date'), endDate: fd.get('endDate') || '', section: fd.get('section'), title: fd.get('title').trim(), text: fd.get('text'), height: (fd.get('height') || '').replace(',', '.').trim(), weight: (fd.get('weight') || '').replace(',', '.').trim(), doctor: !!fd.get('doctor'), done: !!fd.get('done'), author: fd.get('author').trim() });
     if (n.type !== 'measure') { n.height = ''; n.weight = ''; }
+    if (n.type === 'vacc') Object.assign(n, { vStatus: fd.get('vStatus') || 'done', vInf: fd.getAll('vInf'), vDose: (fd.get('vDose') || '').trim(), vLot: (fd.get('vLot') || '').trim() });
+    else { delete n.vStatus; delete n.vInf; delete n.vDose; delete n.vLot; }
     if (n.author) { S.author = n.author; MC.db.put('kv', 'author', n.author); }
     await saveNote(n); toast('Сохранено'); location.replace('#/n/' + n.id);
   };
@@ -555,6 +573,53 @@ function viewIll(v, id) {
   v.innerHTML = `<article class="card"><h2>${esc(il.title)}</h2><p class="muted">${esc(il.desc)}</p><div class="zoom"><img src="${il.img}" alt=""></div><p class="muted small">На телефоне изображение можно увеличить двумя пальцами.</p></article>`;
 }
 
+/* ---------- Дневник прививок ---------- */
+const infName = id => ((S.data.vacc && S.data.vacc.infections.find(i => i.id === id)) || { name: id }).name;
+const vaccLabel = r => r.vaccine || (r.inf || []).map(infName).join(', ');
+const vaccNoteText = n => [V_STATUS[n.vStatus || 'done'], n.vDose && 'доза ' + n.vDose, (n.vInf || []).map(infName).join(', '), n.vLot && 'серия ' + n.vLot].filter(Boolean).join(' · ');
+function vaccItems() {
+  const V = S.data.vacc; if (!V) return [];
+  const recs = V.records.map((r, i) => Object.assign({}, r, { key: 'r' + i, from: 'doc' }));
+  const notes = liveNotes().filter(n => n.type === 'vacc').map(n => ({ key: 'n' + n.id, date: n.date, dateText: fmtDate(n.date), approx: false, inf: n.vInf || [], vaccine: n.title, dose: n.vDose || '', status: n.vStatus || 'done', src: [n.vLot && 'Серия: ' + n.vLot, n.text].filter(Boolean).join('\n'), note: n.id, author: n.author, from: 'note' }));
+  return recs.concat(notes).sort((a, b) => a.date.localeCompare(b.date));
+}
+const vShort = r => r.short || fmtDate(r.date);
+function vaccTable(print) {
+  const items = vaccItems(); const V = S.data.vacc;
+  const used = new Set(items.flatMap(r => r.inf));
+  const rows = V.infections.filter(i => used.has(i.id) || (!print && i.id !== 'other' && V.infections.indexOf(i) < 11)).map(i => {
+    const its = items.filter(r => r.inf.includes(i.id));
+    const cells = its.map(r => print
+      ? `${esc(vShort(r))}${r.dose ? ' (' + esc(r.dose) + ')' : ''}${r.status !== 'done' && !vShort(r).includes(V_STATUS[r.status].replace(/^\S+\s/, '')) ? ' — ' + esc(V_STATUS[r.status].replace(/^\S+\s/, '')) : ''}`
+      : `<button class="vd s-${r.status}${r.approx ? ' approx' : ''}${r.from === 'note' ? ' mine' : ''}" data-k="${r.key}">${esc(vShort(r))}${r.dose ? ' · ' + esc(r.dose) : ''}</button>`);
+    return `<tr><th>${esc(i.name)}</th><td>${cells.length ? cells.join(print ? '; ' : ' ') : '<span class="muted">нет данных</span>'}</td></tr>`;
+  }).join('');
+  return `<div class="tw"><table class="vtab"><tbody>${rows}</tbody></table></div>`;
+}
+function viewVacc(v) {
+  frame('Дневник прививок');
+  const V = S.data.vacc; if (!V) { v.innerHTML = '<p>Нет данных о прививках</p>'; return; }
+  const items = vaccItems(); const exact = items.filter(r => !r.approx && r.status === 'done').length;
+  const docLinks = ds => (ds || []).map(n => docByN(n)).filter(Boolean).map(d => `<a href="#/d/${d.n}">📄 ${d.date ? fmtDate(d.date) : 'документ без даты'}</a>`).join(' ');
+  const H_IC = { exempt: '⛔', allowed: '✅', note: 'ℹ️' };
+  v.innerHTML = `
+  <section class="card"><p class="lead">Все прививки, которые упоминаются в документах, плюс те, что вы добавите сами (например, сделанные в Финляндии).</p>
+    <p class="muted small">Известно записей: <b>${items.length}</b>, из них с точной датой: <b>${exact}</b>. ≈ — дата приблизительная (известно только из анамнеза).</p>
+    <div class="quick"><a class="btn primary" href="#/new?type=vacc">＋ Добавить прививку</a><a class="btn" href="#/doctor">🩺 Показать врачу</a></div></section>
+  <section class="card"><h3>По инфекциям</h3>${vaccTable(false)}
+    <div class="legend vleg"><span><i class="vd s-done"></i>сделана</span><span><i class="vd s-done approx"></i>дата приблизительная</span><span><i class="vd s-indicated"></i>показана / назначена</span><span><i class="vd s-plan"></i>запланирована</span><span><i class="vd mine"></i>добавлено вами</span></div></section>
+  <section class="card"><h3>Все прививки по датам</h3><ul class="list vlist">${items.slice().reverse().map(r => `<li id="v-${r.key}"><div class="vrow">
+    <span class="date">${esc(r.dateText || fmtDate(r.date))}</span>
+    <span class="ttl">💉 ${esc(vaccLabel(r))}${r.dose ? ' · ' + esc(r.dose) : ''} <span class="chip">${esc(V_STATUS[r.status] || r.status)}</span></span>
+    ${r.vaccine ? `<span class="meta">От: ${esc(r.inf.map(infName).join(', '))}</span>` : ''}
+    ${r.src ? `<span class="meta">${esc(r.src)}</span>` : ''}
+    <span class="meta">${r.from === 'note' ? `<a href="#/n/${r.note}">✍️ Запись родителей${r.author ? ' (' + esc(r.author) + ')' : ''} — открыть</a>` : docLinks(r.docs)}</span></div></li>`).join('')}</ul></section>
+  <section class="card"><h3>Медотводы и разрешения</h3><ul class="list vlist">${V.history.map(h => `<li><div class="vrow"><span class="date">${esc(h.dateText || fmtDate(h.date))}</span>
+    <span class="ttl">${H_IC[h.kind] || ''} ${esc(h.text)}</span><span class="meta">${docLinks(h.docs)}</span></div></li>`).join('')}</ul></section>
+  <section class="card"><h3>Чего не хватает</h3><ul>${V.gaps.map(g => `<li>${esc(g)}</li>`).join('')}</ul></section>`;
+  v.querySelectorAll('.vtab .vd').forEach(b => b.onclick = () => { const el = document.getElementById('v-' + b.dataset.k); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); } });
+}
+
 /* ---------- Для врача ---------- */
 function viewDoctor(v) {
   frame('Для врача'); document.body.classList.add('doctor-mode');
@@ -573,6 +638,7 @@ function viewDoctor(v) {
     <h3>Важно</h3><ul>${kf.alerts.map(a => `<li><b>${esc(a.title)}.</b> ${esc(a.text)}</li>`).join('')}</ul>
     ${S.data.summary['1.2'] ? `<h3>Операции и госпитализации</h3>${md(S.data.summary['1.2'].md)}` : ''}
     <h3>Рост и вес</h3>${growthCharts()}
+    ${S.data.vacc ? `<h3>Прививки</h3>${vaccTable(true)}<p class="muted small">${esc(S.data.vacc.gaps[0])}</p>` : ''}
     ${dn.length ? `<h3>Записи родителей</h3>${dn.map(n => `<div class="drnote"><b>${fmtDate(n.date)} — ${esc(n.title || NOTE_TYPES[n.type].name)}</b>${n.height || n.weight ? `<p>${n.height ? 'Рост ' + esc(n.height) + ' см ' : ''}${n.weight ? 'Вес ' + esc(n.weight) + ' кг' : ''}</p>` : ''}${n.text ? md(n.text) : ''}</div>`).join('')}` : ''}
     ${qs.length ? `<h3>Наши вопросы</h3><ol>${qs.map(n => `<li>${esc(n.title)}${n.text ? '<br><span class="muted">' + esc(n.text) + '</span>' : ''}</li>`).join('')}</ol>` : ''}
     <p class="muted small">Полные тексты всех 177 документов — в разделах медкарты и через поиск.</p>
@@ -588,6 +654,7 @@ function viewMore(v) {
     <li><a href="#/doctor"><span class="ttl">🩺 Для врача</span><span class="meta">Короткая страница, крупный шрифт, печать</span></a></li>
     <li><a href="#/sum"><span class="ttl">📋 Сводка по документам</span><span class="meta">Диагнозы, операции, лекарства, рост, анализы, расхождения</span></a></li>
     <li><a href="#/t"><span class="ttl">🗓 Хронология</span><span class="meta">Все документы и записи по датам</span></a></li>
+    <li><a href="#/v"><span class="ttl">💉 Дневник прививок</span><span class="meta">Сделанные прививки, медотводы, добавление новых</span></a></li>
     ${S.data.illustrations.map(i => `<li><a href="#/i/${i.id}"><span class="ttl">🖼 ${esc(i.title)}</span></a></li>`).join('')}
     <li><a href="#/set"><span class="ttl">⚙️ Настройки, передача записей, резервная копия</span></a></li>
   </ul></section>`;

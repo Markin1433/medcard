@@ -1,5 +1,5 @@
 /* Работа без интернета: всё нужное хранится в кэше устройства. */
-const VERSION = 'medcard-v1';
+const VERSION = 'medcard-v2';
 const FILES = ['./', 'index.html', 'style.css', 'crypto.js', 'search.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'data.enc'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
